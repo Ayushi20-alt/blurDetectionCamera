@@ -4,15 +4,19 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import java.util.Locale
 import kotlin.math.abs
+import androidx.core.graphics.scale
 
 internal object BlurAnalyzer {
 
     fun analyze(bitmap: Bitmap, threshold: Double): BlurAnalysisResult {
+        // The longest side is scaled down to a maximum of 640px
         val scaledBitmap = bitmap.scaleForBlurAnalysis()
         val width = scaledBitmap.width
         val height = scaledBitmap.height
         val grayPixels = ByteArray(width * height)
 
+        // The RGB pixels are converted to grayscale using the standard luminance formula:
+        // $$Y = 0.299 \cdot R + 0.587 \cdot G + 0.114 \cdot B$$
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val pixel = scaledBitmap.getPixel(x, y)
@@ -26,10 +30,12 @@ internal object BlurAnalyzer {
         val motionMetrics = calculateMotionMetrics(grayPixels, width, height)
         val effectiveThreshold = threshold * VARIANCE_THRESHOLD_MULTIPLIER
         val directionalSmear = minOf(motionMetrics.horizontalEnergy, motionMetrics.verticalEnergy)
+        // Motion blur typically occurs in a specific direction
         val directionalImbalance = calculateDirectionalImbalance(
             horizontalEnergy = motionMetrics.horizontalEnergy,
             verticalEnergy = motionMetrics.verticalEnergy
         )
+        // Because raw Laplacian variance can be distorted by lighting or image texture, the analyzer normalizes it:
         val normalizedSharpness = calculateNormalizedSharpness(
             variance = variance,
             averageEdgeEnergy = motionMetrics.averageEnergy
@@ -89,7 +95,7 @@ internal object BlurAnalyzer {
         val scaleFactor = TARGET_LONGEST_SIDE_PX.toFloat() / longestSide.toFloat()
         val scaledWidth = (width * scaleFactor).toInt().coerceAtLeast(MIN_IMAGE_DIMENSION_PX)
         val scaledHeight = (height * scaleFactor).toInt().coerceAtLeast(MIN_IMAGE_DIMENSION_PX)
-        return Bitmap.createScaledBitmap(this, scaledWidth, scaledHeight, true)
+        return this.scale(scaledWidth, scaledHeight)
     }
 
     private fun calculateMotionMetrics(grayPixels: ByteArray, width: Int, height: Int): MotionMetrics {
@@ -149,6 +155,14 @@ private class MotionMetrics(
 )
 
 private fun Double.formatForDebug(): String = String.format(Locale.US, "%.2f", this)
+
+// The Decision Matrix :-
+
+// Passes Threshold: If normalized sharpness is $\ge 420$ (BORDERLINE), it is considered sharp.
+// Fails Hard Threshold: If normalized sharpness is $< 320$, it is considered blurry.
+// The Borderline Zone ($320 - 420$): If the sharpness falls in this gray area, the algorithm checks for motion blur symptoms:
+// If Directional Smear (the minimum of horizontal/vertical energy) is very low ($< 12.0$), it fails.
+// If Directional Imbalance is very high ($> 0.55$), it fails.
 
 private const val TARGET_LONGEST_SIDE_PX: Int = 640
 private const val MIN_IMAGE_DIMENSION_PX: Int = 64
