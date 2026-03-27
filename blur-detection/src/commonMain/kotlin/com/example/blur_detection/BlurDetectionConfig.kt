@@ -38,6 +38,15 @@ data class BlurDetectionConfig(
     val shakeAccelerationThreshold: Float = 15f,
     val shakeResetTimeMs: Long = 500L,
     val recentMotionWindowMs: Long = 1200L,
+    val severeBlurNormalizedSharpnessThreshold: Double = 110.0,
+    val severeBlurMinVariance: Double = 3200.0,
+    val normalizedSharpnessThreshold: Double = 260.0,
+    val borderlineNormalizedSharpnessThreshold: Double = 360.0,
+    val directionalSmearThreshold: Double = 10.0,
+    val directionalImbalanceThreshold: Double = 0.65,
+    val lowDetailSceneMinVariance: Double = 5400.0,
+    val lowDetailSceneMinNormalizedSharpness: Double = 185.0,
+    val lowDetailSceneMaxDirectionalImbalance: Double = 0.20,
 
     /**
      * Determines behavior when shake is detected.
