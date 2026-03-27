@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 class CapturedImageResult(
     val bytes: ByteArray,
     val isBlurred: Boolean,
+    val isSeverelyBlurred: Boolean = false,
     val blurScore: Double? = null,
     val blurThreshold: Double? = null,
     val blurReason: String? = null,

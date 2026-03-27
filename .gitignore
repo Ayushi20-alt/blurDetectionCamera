@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Chat history / local DB files
+*.db
+*.db-shm
+*.db-wal

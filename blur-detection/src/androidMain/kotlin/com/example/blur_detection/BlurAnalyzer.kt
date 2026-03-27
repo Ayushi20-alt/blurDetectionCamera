@@ -8,7 +8,7 @@ import androidx.core.graphics.scale
 
 internal object BlurAnalyzer {
 
-    fun analyze(bitmap: Bitmap, threshold: Double): BlurAnalysisResult {
+    fun analyze(bitmap: Bitmap, config: BlurDetectionConfig, threshold: Double): BlurAnalysisResult {
         // The longest side is scaled down to a maximum of 640px
         val scaledBitmap = bitmap.scaleForBlurAnalysis()
         val width = scaledBitmap.width
@@ -40,30 +40,48 @@ internal object BlurAnalyzer {
             variance = variance,
             averageEdgeEnergy = motionMetrics.averageEnergy
         )
+        val isSeverelyBlurred =
+            normalizedSharpness < config.severeBlurNormalizedSharpnessThreshold &&
+                variance < config.severeBlurMinVariance
+        val passesLowDetailSceneOverride =
+            !isSeverelyBlurred &&
+                variance >= config.lowDetailSceneMinVariance &&
+                normalizedSharpness >= config.lowDetailSceneMinNormalizedSharpness &&
+                directionalImbalance <= config.lowDetailSceneMaxDirectionalImbalance
         val isBlurred =
-            normalizedSharpness < NORMALIZED_SHARPNESS_THRESHOLD ||
+            isSeverelyBlurred ||
                 (
-                    normalizedSharpness < BORDERLINE_NORMALIZED_SHARPNESS_THRESHOLD &&
+                    !passesLowDetailSceneOverride &&
+                        normalizedSharpness < config.normalizedSharpnessThreshold
+                    ) ||
+                (
+                    !passesLowDetailSceneOverride &&
+                        normalizedSharpness < config.borderlineNormalizedSharpnessThreshold &&
                         (
-                            directionalSmear < DIRECTIONAL_SMEAR_THRESHOLD ||
-                                directionalImbalance > DIRECTIONAL_IMBALANCE_THRESHOLD
+                            directionalSmear < config.directionalSmearThreshold ||
+                                directionalImbalance > config.directionalImbalanceThreshold
                             )
                     )
 
         val reason = when {
-            normalizedSharpness < NORMALIZED_SHARPNESS_THRESHOLD ->
-                "Low normalized sharpness: ${normalizedSharpness.formatForDebug()} < ${NORMALIZED_SHARPNESS_THRESHOLD.formatForDebug()}"
-            normalizedSharpness < BORDERLINE_NORMALIZED_SHARPNESS_THRESHOLD &&
-                directionalSmear < DIRECTIONAL_SMEAR_THRESHOLD ->
-                "Directional smear detected: ${directionalSmear.formatForDebug()} < ${DIRECTIONAL_SMEAR_THRESHOLD.formatForDebug()}"
-            normalizedSharpness < BORDERLINE_NORMALIZED_SHARPNESS_THRESHOLD &&
-                directionalImbalance > DIRECTIONAL_IMBALANCE_THRESHOLD ->
-                "Directional imbalance too high: ${directionalImbalance.formatForDebug()} > ${DIRECTIONAL_IMBALANCE_THRESHOLD.formatForDebug()}"
+            isSeverelyBlurred ->
+                "Severely blurred: normalized=${normalizedSharpness.formatForDebug()} < ${config.severeBlurNormalizedSharpnessThreshold.formatForDebug()}, variance=${variance.formatForDebug()} < ${config.severeBlurMinVariance.formatForDebug()}"
+            passesLowDetailSceneOverride ->
+                "Passed low-detail scene override"
+            normalizedSharpness < config.normalizedSharpnessThreshold ->
+                "Low normalized sharpness: ${normalizedSharpness.formatForDebug()} < ${config.normalizedSharpnessThreshold.formatForDebug()}"
+            normalizedSharpness < config.borderlineNormalizedSharpnessThreshold &&
+                directionalSmear < config.directionalSmearThreshold ->
+                "Directional smear detected: ${directionalSmear.formatForDebug()} < ${config.directionalSmearThreshold.formatForDebug()}"
+            normalizedSharpness < config.borderlineNormalizedSharpnessThreshold &&
+                directionalImbalance > config.directionalImbalanceThreshold ->
+                "Directional imbalance too high: ${directionalImbalance.formatForDebug()} > ${config.directionalImbalanceThreshold.formatForDebug()}"
             else -> "Image passed blur checks"
         }
 
         val result = BlurAnalysisResult(
             isBlurred = isBlurred,
+            isSeverelyBlurred = isSeverelyBlurred,
             variance = variance,
             effectiveThreshold = effectiveThreshold,
             normalizedSharpness = normalizedSharpness,
@@ -75,7 +93,7 @@ internal object BlurAnalyzer {
         )
 
         BlurDetectionLogger.debug(
-            "blurAnalysis isBlurred=${result.isBlurred}, variance=${result.variance.formatForDebug()}, " +
+            "blurAnalysis isBlurred=${result.isBlurred}, severelyBlurred=${result.isSeverelyBlurred}, lowDetailOverride=$passesLowDetailSceneOverride, variance=${result.variance.formatForDebug()}, " +
                 "threshold=${result.effectiveThreshold.formatForDebug()}, normalized=${result.normalizedSharpness.formatForDebug()}, " +
                 "avgEdge=${result.averageEdgeEnergy.formatForDebug()}, " +
                 "horizontal=${result.horizontalEdgeEnergy.formatForDebug()}, vertical=${result.verticalEdgeEnergy.formatForDebug()}, " +
@@ -138,6 +156,7 @@ internal object BlurAnalyzer {
 
 internal class BlurAnalysisResult(
     val isBlurred: Boolean,
+    val isSeverelyBlurred: Boolean,
     val variance: Double,
     val effectiveThreshold: Double,
     val normalizedSharpness: Double,
@@ -158,17 +177,16 @@ private fun Double.formatForDebug(): String = String.format(Locale.US, "%.2f", t
 
 // The Decision Matrix :-
 
-// Passes Threshold: If normalized sharpness is $\ge 420$ (BORDERLINE), it is considered sharp.
-// Fails Hard Threshold: If normalized sharpness is $< 320$, it is considered blurry.
-// The Borderline Zone ($320 - 420$): If the sharpness falls in this gray area, the algorithm checks for motion blur symptoms:
-// If Directional Smear (the minimum of horizontal/vertical energy) is very low ($< 12.0$), it fails.
-// If Directional Imbalance is very high ($> 0.55$), it fails.
+// Passes Threshold: If normalized sharpness is $\ge 360$ (BORDERLINE), it is considered sharp.
+// Fails Severe Threshold: If normalized sharpness is $< 110$ and variance is $< 3200$, it is considered severely blurred.
+// Fails Hard Threshold: If normalized sharpness is $< 260$, it is considered blurry.
+// The Borderline Zone ($260 - 360$): If the sharpness falls in this gray area, the algorithm checks for motion blur symptoms:
+// If Directional Smear (the minimum of horizontal/vertical energy) is very low ($< 10.0$), it fails.
+// If Directional Imbalance is very high ($> 0.65$), it fails.
+// Low-detail scene override: if variance is high enough ($\ge 5400$), normalized sharpness is acceptable ($\ge 185$),
+// and directional imbalance stays low ($\le 0.20$), the image passes despite low-detail content.
 
 private const val TARGET_LONGEST_SIDE_PX: Int = 640
 private const val MIN_IMAGE_DIMENSION_PX: Int = 64
 private const val VARIANCE_THRESHOLD_MULTIPLIER: Double = 1.0
-private const val DIRECTIONAL_SMEAR_THRESHOLD: Double = 12.0
-private const val DIRECTIONAL_IMBALANCE_THRESHOLD: Double = 0.55
-private const val NORMALIZED_SHARPNESS_THRESHOLD: Double = 320.0
-private const val BORDERLINE_NORMALIZED_SHARPNESS_THRESHOLD: Double = 420.0
 private const val MIN_EDGE_ENERGY_FOR_NORMALIZATION: Double = 1.0

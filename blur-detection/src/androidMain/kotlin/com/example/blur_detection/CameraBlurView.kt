@@ -164,6 +164,7 @@ actual fun CameraBlurView(
                                 val effectiveThreshold = config.getEffectiveThreshold(wasShakingDuringCapture)
                                 val blurAnalysis = BlurAnalyzer.analyze(
                                     bitmap = capturedPhoto.bitmap,
+                                    config = config,
                                     threshold = effectiveThreshold
                                 )
                                 val blurred = blurAnalysis.isBlurred
@@ -182,6 +183,7 @@ actual fun CameraBlurView(
                                     lastImageResult = CapturedImageResult(
                                         bytes = capturedPhoto.bytes,
                                         isBlurred = blurred,
+                                        isSeverelyBlurred = blurAnalysis.isSeverelyBlurred,
                                         blurScore = blurAnalysis.variance,
                                         blurThreshold = blurAnalysis.effectiveThreshold,
                                         blurReason = blurAnalysis.reason,
@@ -191,6 +193,7 @@ actual fun CameraBlurView(
                                         normalizedSharpness = blurAnalysis.normalizedSharpness
                                     )
                                     blurCause = when {
+                                        blurAnalysis.isSeverelyBlurred -> "blur_only_severe"
                                         wasShakingDuringCapture && blurred -> "shake_and_blur"
                                         wasShakingDuringCapture -> "shake_only"
                                         else -> "blur_only"
@@ -209,6 +212,7 @@ actual fun CameraBlurView(
                                         CapturedImageResult(
                                             bytes = capturedPhoto.bytes,
                                             isBlurred = false,
+                                            isSeverelyBlurred = false,
                                             blurScore = blurAnalysis.variance,
                                             blurThreshold = blurAnalysis.effectiveThreshold,
                                             blurReason = blurAnalysis.reason,
@@ -240,6 +244,7 @@ actual fun CameraBlurView(
                 dialogMessage = dialogMessage,
                 retakeButtonText = retakeButtonText,
                 useAnywayButtonText = useAnywayButtonText,
+                allowUseAnyway = lastImageResult?.isSeverelyBlurred != true,
                 onDismiss = {
                     BlurDetectionLogger.debug("capture.dialogDismissed action=dismiss")
                     showBlurDialog = false
@@ -257,6 +262,10 @@ actual fun CameraBlurView(
                     lastImageResult = null
                 },
                 onUseAnyway = {
+                    if (lastImageResult?.isSeverelyBlurred == true) {
+                        BlurDetectionLogger.debug("capture.dialogDismissed action=use_anyway_blocked reason=severe_blur")
+                        return@BlurDetectionDialog
+                    }
                     BlurDetectionLogger.debug(
                         "capture.dialogDismissed action=use_anyway storedResultBlurred=${lastImageResult?.isBlurred} " +
                             "reason=${lastImageResult?.blurReason}"
@@ -267,10 +276,11 @@ actual fun CameraBlurView(
                         val resultToEmit = lastImageResult?.copyForAcceptedWarning(bytes = bytes)
                             ?: CapturedImageResult(
                                 bytes = bytes,
-                                    isBlurred = true,
-                                    blurReason = "User accepted image after warning",
-                                    hadRecentMotion = isShaking || shakeDetector.hadRecentMotion()
-                                )
+                                isBlurred = true,
+                                isSeverelyBlurred = false,
+                                blurReason = "User accepted image after warning",
+                                hadRecentMotion = isShaking || shakeDetector.hadRecentMotion()
+                            )
                         BlurDetectionLogger.debug(
                             "capture.resultEmitted type=accepted_after_warning isBlurred=${resultToEmit.isBlurred} " +
                                 "reason=${resultToEmit.blurReason}"
@@ -385,6 +395,7 @@ private fun BlurDetectionDialog(
     dialogMessage: String,
     retakeButtonText: String,
     useAnywayButtonText: String,
+    allowUseAnyway: Boolean,
     onDismiss: () -> Unit,
     onRetake: () -> Unit,
     onUseAnyway: () -> Unit
@@ -398,6 +409,7 @@ private fun BlurDetectionDialog(
     val message = when (blurCause) {
         "shake_and_blur" -> "The phone was shaking during capture and the image is blurry. Please hold the device steady and try again."
         "shake_only" -> "The phone was moving during capture. This may have caused blur. Would you like to retake?"
+        "blur_only_severe" -> "The captured image is too blurred to use. Please retake the photo."
         else -> dialogMessage
     }
 
@@ -436,10 +448,14 @@ private fun BlurDetectionDialog(
                 Text(retakeButtonText)
             }
         },
-        dismissButton = {
-            TextButton(onClick = onUseAnyway) {
-                Text(useAnywayButtonText)
+        dismissButton = if (allowUseAnyway) {
+            {
+                TextButton(onClick = onUseAnyway) {
+                    Text(useAnywayButtonText)
+                }
             }
+        } else {
+            null
         }
     )
 }
@@ -544,6 +560,7 @@ private fun CapturedImageResult.copyForAcceptedWarning(bytes: ByteArray): Captur
     return CapturedImageResult(
         bytes = bytes,
         isBlurred = isBlurred,
+        isSeverelyBlurred = isSeverelyBlurred,
         blurScore = blurScore,
         blurThreshold = blurThreshold,
         blurReason = "$blurReason (accepted after warning)",

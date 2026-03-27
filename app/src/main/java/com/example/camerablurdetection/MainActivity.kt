@@ -9,8 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,10 +64,15 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxSize(),
                                     config = BlurDetectionConfig(
                                         blurThreshold = 13500.0,
-                                        shakeThresholdMultiplier = 2.2,
-                                        shakeAccelerationThreshold = 10f,
-                                        shakeResetTimeMs = 900L,
-                                        shakeCaptureMode = ShakeCaptureMode.AUTO_REJECT_ON_SHAKE
+                                        shakeThresholdMultiplier = 1.5,
+                                        shakeAccelerationThreshold = 12f,
+                                        shakeResetTimeMs = 650L,
+                                        recentMotionWindowMs = 700L,
+                                        normalizedSharpnessThreshold = 260.0,
+                                        borderlineNormalizedSharpnessThreshold = 360.0,
+                                        directionalSmearThreshold = 10.0,
+                                        directionalImbalanceThreshold = 0.65,
+                                        shakeCaptureMode = ShakeCaptureMode.WARN_ONLY
                                     )
                                 )
                             } else {
@@ -74,101 +83,116 @@ class MainActivity : ComponentActivity() {
                                     capturedImageResult.bytes.size
                                 )
 
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 16.dp, vertical = 24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(20.dp)
-                                ) {
-                                    Image(
-                                        bitmap = bitmap.asImageBitmap(),
-                                        contentDescription = "Captured Image",
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .weight(1f)
-                                            .padding(top = 8.dp),
-                                        contentScale = ContentScale.Fit
-                                    )
+                                            .padding(start = 8.dp, top = 12.dp, end = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(onClick = { imageResult = null }) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                contentDescription = "Back to camera"
+                                            )
+                                        }
+                                    }
 
-                                    Card {
-                                        Box(
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                                    ) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Captured Image",
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            val wasAcceptedAfterWarning =
-                                                capturedImageResult.blurReason?.contains(
-                                                    other = "accepted after warning",
-                                                    ignoreCase = true
-                                                ) == true
-                                            val message = if (capturedImageResult.isBlurred && !wasAcceptedAfterWarning) {
-                                                "Image is blurred"
-                                            } else if (wasAcceptedAfterWarning) {
-                                                "Accepted after warning"
-                                            } else {
-                                                "Good image"
+                                                .weight(1f),
+                                            contentScale = ContentScale.Fit
+                                        )
+
+                                        Card {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                val wasAcceptedAfterWarning =
+                                                    capturedImageResult.blurReason?.contains(
+                                                        other = "accepted after warning",
+                                                        ignoreCase = true
+                                                    ) == true
+                                                val message = if (capturedImageResult.isBlurred && !wasAcceptedAfterWarning) {
+                                                    "Image is blurred"
+                                                } else if (wasAcceptedAfterWarning) {
+                                                    "Accepted after warning"
+                                                } else {
+                                                    "Good image"
+                                                }
+                                                Text(
+                                                    text = message,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
                                             }
-                                            Text(
-                                                text = message,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
                                         }
-                                    }
 
-                                    Card {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "Debug info",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text("Blurred: ${capturedImageResult.isBlurred}")
-                                            Text(
-                                                "Variance: ${
-                                                    capturedImageResult.blurScore?.let { formatDebugValue(it) } ?: "n/a"
-                                                }"
-                                            )
-                                            Text(
-                                                "Threshold: ${
-                                                    capturedImageResult.blurThreshold?.let { formatDebugValue(it) } ?: "n/a"
-                                                }"
-                                            )
-                                            Text(
-                                                "Normalized sharpness: ${
-                                                    capturedImageResult.normalizedSharpness?.let { formatDebugValue(it) } ?: "n/a"
-                                                }"
-                                            )
-                                            Text(
-                                                "Avg edge: ${
-                                                    capturedImageResult.averageEdgeEnergy?.let { formatDebugValue(it) } ?: "n/a"
-                                                }"
-                                            )
-                                            Text(
-                                                "Directional imbalance: ${
-                                                    capturedImageResult.directionalImbalance?.let { formatDebugValue(it) } ?: "n/a"
-                                                }"
-                                            )
-                                            Text("Recent motion: ${capturedImageResult.hadRecentMotion}")
-                                            Text(
-                                                "Reason: ${capturedImageResult.blurReason ?: "No reason available"}"
-                                            )
+                                        Card {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Debug info",
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text("Blurred: ${capturedImageResult.isBlurred}")
+                                                Text(
+                                                    "Variance: ${
+                                                        capturedImageResult.blurScore?.let { formatDebugValue(it) } ?: "n/a"
+                                                    }"
+                                                )
+                                                Text(
+                                                    "Threshold: ${
+                                                        capturedImageResult.blurThreshold?.let { formatDebugValue(it) } ?: "n/a"
+                                                    }"
+                                                )
+                                                Text(
+                                                    "Normalized sharpness: ${
+                                                        capturedImageResult.normalizedSharpness?.let { formatDebugValue(it) } ?: "n/a"
+                                                    }"
+                                                )
+                                                Text(
+                                                    "Avg edge: ${
+                                                        capturedImageResult.averageEdgeEnergy?.let { formatDebugValue(it) } ?: "n/a"
+                                                    }"
+                                                )
+                                                Text(
+                                                    "Directional imbalance: ${
+                                                        capturedImageResult.directionalImbalance?.let { formatDebugValue(it) } ?: "n/a"
+                                                    }"
+                                                )
+                                                Text("Recent motion: ${capturedImageResult.hadRecentMotion}")
+                                                Text(
+                                                    "Reason: ${capturedImageResult.blurReason ?: "No reason available"}"
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    if (capturedImageResult.isBlurred) {
-                                        Button(
-                                            onClick = { imageResult = null },
-                                            modifier = Modifier.padding(bottom = 32.dp)
-                                        ) {
-                                            Text("Capture Again")
+                                        if (capturedImageResult.isBlurred) {
+                                            Button(
+                                                onClick = { imageResult = null },
+                                                modifier = Modifier.padding(bottom = 32.dp)
+                                            ) {
+                                                Text("Capture Again")
+                                            }
                                         }
                                     }
                                 }
